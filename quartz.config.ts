@@ -16,7 +16,8 @@ const config: QuartzConfig = {
       provider: "plausible",
     },
     locale: "en-US",
-    baseUrl: "quartz.jzhao.xyz",
+    // baseUrl: "quartz.jzhao.xyz",
+    baseUrl: "hetgwi01.github.io/my-log",
     ignorePatterns: ["private", "templates", ".obsidian"],
     defaultDateType: "modified",
     theme: {
