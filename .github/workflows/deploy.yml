@@ -52,34 +52,34 @@ jobs:
             cp -r temp_notes/public/* content/
           fi
 
-          # [B] Private: slug 값을 읽어 실제 경로 재배치
+          # [B] Private: Slug 계층을 물리 폴더로 변환
           find temp_notes/private -name "*.md" | while read -r file; do
             if grep -qi "publish: true" "$file"; then
-              # 1. slug 값 추출 (예: /cs/db/my-note -> cs/db/my-note)
-              slug=$(grep -m 1 "^slug:" "$file" | awk '{print $2}' | sed 's/[\" \/]//g' | sed 's/\/$//')
+              # 1. slug 값 정밀 추출 (앞뒤 공백/따옴표 제거, 앞뒤 슬래시만 제거)
+              # 예: slug: "/cs/db/note/" -> cs/db/note
+              raw_slug=$(grep -m 1 "^slug:" "$file" | sed 's/slug://g' | sed 's/\"//g' | sed "s/'//g" | xargs)
+              slug=${raw_slug#/} # 앞 슬래시 제거
+              slug=${slug%/} # 뒤 슬래시 제거
               
               if [ -n "$slug" ]; then
-                # slug가 있는 경우: 해당 경로로 폴더 생성 및 이동
+                # 2. 계층 구조 생성 (mkdir -p 가 공통 경로를 자동으로 묶어줍니다)
                 dest_dir="content/$(dirname "$slug")"
                 dest_file="content/$slug.md"
+                
                 mkdir -p "$dest_dir"
                 cp "$file" "$dest_file"
                 
-                # 이미지 폴더(resources)가 있다면 이동한 위치 옆으로 복사
+                # 3. 이미지 리소스도 계층에 맞춰 복사
                 src_res_dir="$(dirname "$file")/resources"
                 if [ -d "$src_res_dir" ]; then
                   cp -r "$src_res_dir" "$dest_dir/"
                 fi
-                echo "🚀 Slug Routed: $slug"
+                echo "📁 Grouped in: $(dirname "$slug") -> $(basename "$slug")"
               else
-                # slug가 없는 경우: 기존 상대 경로 유지
+                # slug 없는 경우 예외 처리 (원본 유지)
                 rel_path=${file#temp_notes/private/}
                 mkdir -p "content/$(dirname "$rel_path")"
                 cp "$file" "content/$rel_path"
-                
-                if [ -d "$(dirname "$file")/resources" ]; then
-                  cp -r "$(dirname "$file")/resources" "content/$(dirname "$rel_path")/"
-                fi
               fi
             fi
           done
