@@ -52,23 +52,35 @@ jobs:
             cp -r temp_notes/public/* content/
           fi
 
-          # [B] Private: 'publish: true'인 파일과 그 옆의 resources만 선별 복사
-          echo "Syncing private notes by original path..."
+          # [B] Private: slug 값을 읽어 실제 경로 재배치
           find temp_notes/private -name "*.md" | while read -r file; do
             if grep -qi "publish: true" "$file"; then
-              # 원본과 동일한 상대 경로 계산
-              rel_path=${file#temp_notes/private/}
-              dest_dir="content/$(dirname "$rel_path")"
+              # 1. slug 값 추출 (예: /cs/db/my-note -> cs/db/my-note)
+              slug=$(grep -m 1 "^slug:" "$file" | awk '{print $2}' | sed 's/[\" \/]//g' | sed 's/\/$//')
               
-              mkdir -p "$dest_dir"
-              cp "$file" "content/$rel_path"
-              
-              # 이미지 폴더(resources)가 있다면 통째로 복사
-              src_res_dir="$(dirname "$file")/resources"
-              if [ -d "$src_res_dir" ]; then
-                cp -r "$src_res_dir" "$dest_dir/"
+              if [ -n "$slug" ]; then
+                # slug가 있는 경우: 해당 경로로 폴더 생성 및 이동
+                dest_dir="content/$(dirname "$slug")"
+                dest_file="content/$slug.md"
+                mkdir -p "$dest_dir"
+                cp "$file" "$dest_file"
+                
+                # 이미지 폴더(resources)가 있다면 이동한 위치 옆으로 복사
+                src_res_dir="$(dirname "$file")/resources"
+                if [ -d "$src_res_dir" ]; then
+                  cp -r "$src_res_dir" "$dest_dir/"
+                fi
+                echo "🚀 Slug Routed: $slug"
+              else
+                # slug가 없는 경우: 기존 상대 경로 유지
+                rel_path=${file#temp_notes/private/}
+                mkdir -p "content/$(dirname "$rel_path")"
+                cp "$file" "content/$rel_path"
+                
+                if [ -d "$(dirname "$file")/resources" ]; then
+                  cp -r "$(dirname "$file")/resources" "content/$(dirname "$rel_path")/"
+                fi
               fi
-              echo "✅ Mirrored: $rel_path"
             fi
           done
 
