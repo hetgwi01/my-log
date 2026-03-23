@@ -40,62 +40,45 @@ jobs:
           token: ${{ secrets.GH_TOKEN }}
           path: temp_portfolio
 
-      # 4. 하이브리드 동기화 및 스마트 경로 로직
-      - name: Hybrid Sync & Smart Routing
+      # 4. 사용자 정의 구조 보존 동기화 (이미지 및 포트폴리오)
+      - name: Pure Mirroring Sync
         run: |
+          # 1. content 폴더 초기화
           rm -rf content
           mkdir -p content/portfolio
 
-          # [A] Public 노트: 전체 복사
+          # [A] Public: 원본 그대로 복사
           if [ -d "temp_notes/public" ]; then
             cp -r temp_notes/public/* content/
           fi
 
-          # [B] Private 노트: 슬러그 기반 스마트 이동
+          # [B] Private: 'publish: true'인 파일과 그 옆의 resources만 선별 복사
+          echo "Syncing private notes by original path..."
           find temp_notes/private -name "*.md" | while read -r file; do
             if grep -qi "publish: true" "$file"; then
-              # 1. 파일에서 slug 값 추출 (없으면 기존 경로 사용)
-              # 예: slug: /cs/db/ -> cs/db 추출
-              target_slug=$(grep -m 1 "slug:" "$file" | sed 's/slug://g' | sed 's/\"//g' | sed "s/'//g" | xargs | sed 's/^\///' | sed 's/\/$//')
+              # 원본과 동일한 상대 경로 계산
+              rel_path=${file#temp_notes/private/}
+              dest_dir="content/$(dirname "$rel_path")"
               
-              if [ -n "$target_slug" ]; then
-                # 슬러그가 있는 경우: 슬러그 경로로 이동
-                dest_dir="content/$(dirname "$target_slug")"
-                dest_file="content/$target_slug.md"
-                mkdir -p "$dest_dir"
-                cp "$file" "$dest_file"
-                echo "🚀 Routed by Slug: $target_slug"
-              else
-                # 슬러그가 없는 경우: 원래 폴더 구조 유지
-                rel_path=${file#temp_notes/private/}
-                dir_path=$(dirname "$rel_path")
-                mkdir -p "content/$dir_path"
-                cp "$file" "content/$rel_path"
-                echo "📄 Routed by Path: $rel_path"
-              fi
-
-              # 리소스(이미지) 복사 로직 유지
+              mkdir -p "$dest_dir"
+              cp "$file" "content/$rel_path"
+              
+              # 이미지 폴더(resources)가 있다면 통째로 복사
               src_res_dir="$(dirname "$file")/resources"
               if [ -d "$src_res_dir" ]; then
-                # 슬러그 경로 하위에 resources 폴더 생성
-                res_dest="content/$(dirname "$target_slug")/resources"
-                mkdir -p "$res_dest"
-                cp -r "$src_res_dir"/* "$res_dest/"
+                cp -r "$src_res_dir" "$dest_dir/"
               fi
+              echo "✅ Mirrored: $rel_path"
             fi
           done
 
-          # [C] 포트폴리오 저장소 전체 통합
+          # [C] 포트폴리오: 사용자님이 설계한 구조 그대로 전체 복사
           if [ -d "temp_portfolio" ]; then
-            echo "Integrating Portfolio..."
-            # 모든 파일 복사 (README.md 포함)
+            echo "Syncing Portfolio repository (As-is)..."
+            # 사용자님이 이미 index.md 등을 구현해두셨으므로 아무것도 수정하지 않고 통째로 복사합니다.
             cp -r temp_portfolio/* content/portfolio/
-            # README.md를 index.md로 강제 변경 (메인 화면용)
-            if [ -f "content/portfolio/README.md" ]; then
-              mv content/portfolio/README.md content/portfolio/index.md
-            fi
-            # 포트폴리오 내부 파일들의 이미지 경로 등 확인을 위해 목록 출력
-            ls -R content/portfolio
+            # .git 폴더 등이 따라오지 않게 정리만 합니다.
+            rm -rf content/portfolio/.git
           fi
 
           rm -rf temp_notes temp_portfolio
