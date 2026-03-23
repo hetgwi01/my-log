@@ -40,49 +40,62 @@ jobs:
           token: ${{ secrets.GH_TOKEN }}
           path: temp_portfolio
 
-      # 4. 하이브리드 동기화 및 필터링 로직
-      - name: Hybrid Sync & Filter Logic
+      # 4. 하이브리드 동기화 및 스마트 경로 로직
+      - name: Hybrid Sync & Smart Routing
         run: |
-          # 1. 기존 content 폴더 완전 초기화
           rm -rf content
           mkdir -p content/portfolio
 
-          # 2. [Public] 무조건 전체 복사
+          # [A] Public 노트: 전체 복사
           if [ -d "temp_notes/public" ]; then
-            echo "Copying public notes..."
             cp -r temp_notes/public/* content/
           fi
 
-          # 3. [Private] 하나씩 검사하며 선별 복사
-          echo "Filtering private notes..."
-          # 모든 md 파일을 찾아서 루프를 돕니다.
+          # [B] Private 노트: 슬러그 기반 스마트 이동
           find temp_notes/private -name "*.md" | while read -r file; do
-            # 파일 내용 중에 publish: true 가 있는지 검사 (대소문자 무시)
             if grep -qi "publish: true" "$file"; then
-              # 상대 경로 계산
-              rel_path=${file#temp_notes/private/}
-              dir_path=$(dirname "$rel_path")
+              # 1. 파일에서 slug 값 추출 (없으면 기존 경로 사용)
+              # 예: slug: /cs/db/ -> cs/db 추출
+              target_slug=$(grep -m 1 "slug:" "$file" | sed 's/slug://g' | sed 's/\"//g' | sed "s/'//g" | xargs | sed 's/^\///' | sed 's/\/$//')
               
-              # 목적지 생성 및 복사
-              mkdir -p "content/$dir_path"
-              cp "$file" "content/$rel_path"
-              echo "✅ Published: $rel_path"
+              if [ -n "$target_slug" ]; then
+                # 슬러그가 있는 경우: 슬러그 경로로 이동
+                dest_dir="content/$(dirname "$target_slug")"
+                dest_file="content/$target_slug.md"
+                mkdir -p "$dest_dir"
+                cp "$file" "$dest_file"
+                echo "🚀 Routed by Slug: $target_slug"
+              else
+                # 슬러그가 없는 경우: 원래 폴더 구조 유지
+                rel_path=${file#temp_notes/private/}
+                dir_path=$(dirname "$rel_path")
+                mkdir -p "content/$dir_path"
+                cp "$file" "content/$rel_path"
+                echo "📄 Routed by Path: $rel_path"
+              fi
 
-              # 리소스(이미지) 폴더 처리
+              # 리소스(이미지) 복사 로직 유지
               src_res_dir="$(dirname "$file")/resources"
               if [ -d "$src_res_dir" ]; then
-                cp -r "$src_res_dir" "content/$dir_path/"
+                # 슬러그 경로 하위에 resources 폴더 생성
+                res_dest="content/$(dirname "$target_slug")/resources"
+                mkdir -p "$res_dest"
+                cp -r "$src_res_dir"/* "$res_dest/"
               fi
             fi
           done
 
-          # 4. [Daiso-book] 포트폴리오 복사
+          # [C] 포트폴리오 저장소 전체 통합
           if [ -d "temp_portfolio" ]; then
+            echo "Integrating Portfolio..."
+            # 모든 파일 복사 (README.md 포함)
             cp -r temp_portfolio/* content/portfolio/
-            # README.md가 있다면 index.md로 이름을 바꿔서 메인 화면으로 만듦
+            # README.md를 index.md로 강제 변경 (메인 화면용)
             if [ -f "content/portfolio/README.md" ]; then
               mv content/portfolio/README.md content/portfolio/index.md
             fi
+            # 포트폴리오 내부 파일들의 이미지 경로 등 확인을 위해 목록 출력
+            ls -R content/portfolio
           fi
 
           rm -rf temp_notes temp_portfolio
