@@ -3,7 +3,7 @@ name: Deploy Quartz site to GitHub Pages
 on:
   push:
     branches:
-      - v4  # 사용자님이 사용 중인 브랜치 이름
+      - v4  # 사용자님의 메인 브랜치
 
 permissions:
   contents: read
@@ -18,27 +18,81 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      # 1. 기본 Quartz 소스코드 체크아웃
+      - name: Checkout Quartz (Base)
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      # 2. Private 노트 저장소 체크아웃 (비밀번호: GH_TOKEN 사용)
+      - name: Checkout Private Notes
+        uses: actions/checkout@v4
+        with:
+          repository: hetgwi01/Obsidian_Note
+          token: ${{ secrets.GH_TOKEN }}
+          path: temp_notes
+
+      # 3. portfolio 저장소 체크아웃
+      - name: Checkout Portfolio
+        uses: actions/checkout@v4
+        with:
+          repository: hetgwi01/portfolio
+          token: ${{ secrets.GH_TOKEN }}
+          path: temp_daiso
+
+      # 4. 하이브리드 동기화 및 필터링 로직 (핵심 부위)
+      - name: Hybrid Sync & Filter Logic
+        run: |
+          # 기존 content 폴더(심볼릭 링크 포함) 제거 후 새 디렉토리 생성
+          rm -rf content
+          mkdir -p content/portfolio
+
+          # [A] public 폴더: 전체 무조건 복사
+          if [ -d "temp_notes/public" ]; then
+            echo "Copying public notes..."
+            cp -r temp_notes/public/* content/
+          fi
+
+          # [B] private 폴더: 'publish: true' 태그가 있는 파일만 선별 복사
+          echo "Filtering private notes..."
+          # 대소문자 구분 없이 "publish: true" 문자열이 포함된 md 파일을 찾습니다.
+          find temp_notes/private -name "*.md" -exec grep -qi "publish: true" {} + -print | while read -r file; do
+            # 원본 경로에서 상대 경로 추출 (예: java/spring/note.md)
+            rel_path=${file#temp_notes/private/}
+            dir_path=$(dirname "$rel_path")
+            
+            # 목적지 디렉토리 생성 및 마크다운 복사
+            mkdir -p "content/$dir_path"
+            cp "$file" "content/$rel_path"
+            
+            # [C] 리소스 처리: 동일 경로에 resources 폴더가 있으면 함께 복사 (이미지 깨짐 방지)
+            src_res_dir="$(dirname "$file")/resources"
+            if [ -d "$src_res_dir" ]; then
+              cp -r "$src_res_dir" "content/$dir_path/"
+            fi
+          done
+
+          # [D] daiso-book: README를 포트폴리오 메인으로 복사
+          if [ -f "temp_daiso/README.md" ]; then
+            cp temp_daiso/README.md content/portfolio/daiso-book.md
+          fi
+
+          # 빌드 전 임시 데이터 정리 (보안 및 용량 관리)
+          rm -rf temp_notes temp_daiso
+
+      # 5. Quartz 빌드 환경 설정 및 실행
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 22
+
       - name: Install Dependencies
         run: npm ci
-      # - name: Build Quartz
-      #   run: npx quartz build
-      
+
       - name: Build Quartz
-        run: |
-          # 심볼릭 링크가 있다면 제거하고 실제 폴더로 복사 (오류 방지)
-          if [ -L content ]; then
-            rm content
-            cp -r "사용자님의_옵시디언_폴더_경로" content 2>/dev/null || mkdir content
-          fi
-          npx quartz build
+        run: npx quartz build
+
+      # 6. 결과물 업로드
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
