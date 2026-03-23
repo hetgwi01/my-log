@@ -33,12 +33,12 @@ jobs:
           path: temp_notes
 
       # 3. portfolio 저장소 체크아웃
-      - name: Checkout Portfolio
+      - name: Checkout Portfolio Repo
         uses: actions/checkout@v4
         with:
           repository: hetgwi01/portfolio
           token: ${{ secrets.GH_TOKEN }}
-          path: temp_daiso
+          path: temp_portfolio
 
       # 4. 하이브리드 동기화 및 필터링 로직
       - name: Hybrid Sync & Filter Logic
