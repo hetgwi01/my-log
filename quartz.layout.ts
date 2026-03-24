@@ -38,7 +38,10 @@ export const defaultContentPageLayout: PageLayout = {
         { Component: Component.ReaderMode() },
       ],
     }),
-    Component.Explorer(),
+    Component.Explorer({
+      title: "DIRECTORY",
+      useSavedState: true,
+    }),
   ],
   right: [
     Component.Graph(),
