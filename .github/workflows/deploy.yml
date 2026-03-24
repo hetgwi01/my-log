@@ -29,7 +29,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: hetgwi01/Obsidian_Note
-          token: ${{ secrets.GH_TOKEN }}
+          token: ${{ secrets.QUARTZ_READER_TOKEN }}
           path: temp_notes
 
       # 3. portfolio 저장소 체크아웃
@@ -37,7 +37,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: hetgwi01/portfolio
-          token: ${{ secrets.GH_TOKEN }}
+          token: ${{ secrets.QUARTZ_READER_TOKEN }}
           path: temp_portfolio
 
       # 4. 사용자 정의 구조 보존 동기화 (이미지 및 포트폴리오)
