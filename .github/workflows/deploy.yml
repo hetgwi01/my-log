@@ -23,13 +23,13 @@ jobs:
     steps:
       # 1. 기본 Quartz 소스코드 체크아웃
       - name: Checkout Quartz (Base)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
       # 2. Private 노트 저장소 체크아웃 (비밀번호: GH_TOKEN 사용)
       - name: Checkout Private Notes
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: hetgwi01/Obsidian_Note
           token: ${{ secrets.QUARTZ_READER_TOKEN }}
@@ -37,7 +37,7 @@ jobs:
 
       # 3. portfolio 저장소 체크아웃
       - name: Checkout Portfolio Repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: hetgwi01/portfolio
           token: ${{ secrets.QUARTZ_READER_TOKEN }}
@@ -100,7 +100,7 @@ jobs:
 
       # 5. Quartz 빌드 환경 설정 및 실행
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: 22
 
@@ -112,7 +112,7 @@ jobs:
 
       # 6. 결과물 업로드
       - name: Upload artifact
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@v4
         with:
           path: public
 
