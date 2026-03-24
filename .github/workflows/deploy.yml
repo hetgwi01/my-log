@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - v4  # 사용자님의 메인 브랜치
+  # 이벤트
+  repository_dispatch:
+    types: [update-notes, update-portfolio]
 
 permissions:
   contents: read
