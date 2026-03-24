@@ -1,0 +1,10 @@
+<svg width="100" height="100" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+<!-- 배경: 둥근 사각형 -->
+<rect width="100" height="100" rx="22" fill="#1a1b26"/>
+<!-- 터미널 기호 (>): 경로 데이터 수정됨 (M35...) -->
+<path d="M35 30L55 50L35 70" stroke="#73daca" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
+<!-- 언더바 커서 (_): 깜빡이는 애니메이션 포함 -->
+<rect x="60" y="65" width="18" height="6" fill="#c0caf5">
+<animate attributeName="opacity" values="1;0;1" dur="1.2s" repeatCount="indefinite" />
+</rect>
+</svg>
