@@ -2,86 +2,76 @@ import os
 import re
 
 
-def sanitize_url(text):
-    if not text:
+def sanitize_for_web(text):
+    # [에러 방지] 튜플이 들어올 경우 첫 번째 문자열 요소를 사용하고, 아닐 경우 문자열로 강제 변환합니다.
+    if isinstance(text, tuple):
+        text = text
+
+    if text is None:
         return ""
+
+    text = str(text)
+    # 주소창과 매칭 시스템에서 문제를 일으키는 괄호와 공백을 제거합니다.
     return text.replace("(", "").replace(")", "").replace(" ", "-")
 
 
 def run_sanitization(target_path):
     if not os.path.exists(target_path):
+        print(f"⚠️ {target_path} 경로가 없습니다. (정제를 건너뜜)")
         return
 
-    print(f"🚀 {target_path} 라우팅 맵 생성 및 링크 치환을 시작합니다.")
+    print(f"🚀 {target_path} 전처리를 시작합니다. (Private 전용 / 이미지 보호)")
 
-    # 1. 라우팅 맵 빌드: { "정제된파일명": "정제된슬러그" }
-    route_map = {}
-    md_files = []
-
+    # 1. 파일 내용 수정 (내부 링크와 메타데이터 미리 정제)
     for root, dirs, files in os.walk(target_path):
-        for file in files:
-            if file.endswith(".md"):
-                full_path = os.path.join(root, file)
-                md_files.append(full_path)
-
-                # 파일명에서 확장자 뺀 것 (예: 01_싱글톤(Singleton))
-                file_id = os.path.splitext(file)
-                sanitized_id = sanitize_url(file_id)
-
-                # 파일 내부에서 slug 추출
-                with open(full_path, "r", encoding="utf-8") as f:
+        for file_name in files:
+            if file_name.endswith(".md"):
+                path = os.path.join(root, file_name)
+                with open(path, "r", encoding="utf-8") as f:
                     content = f.read()
-                    slug_match = re.search(r"^slug:\s*(.*)", content, re.MULTILINE)
-                    if slug_match:
-                        actual_slug = slug_match.group(1).strip()
-                        route_map[sanitized_id] = sanitize_url(actual_slug)
-                    else:
-                        # slug가 없으면 파일의 상대 경로를 정제해서 주소로 사용
-                        rel_path = os.path.relpath(full_path, target_path)
-                        route_map[sanitized_id] = sanitize_url(
-                            os.path.splitext(rel_path)
+
+                # [A] 위키링크 정제 (이미지는 ![[ 이므로 제외)
+                content = re.sub(
+                    r"(?<!\!)\[\[([^|\]]+)(\|[^\]]+)?\]\]",
+                    lambda m: (
+                        f"[[{sanitize_for_web(m.group(1))}{m.group(2) if m.group(2) else ''}]]"
+                    ),
+                    content,
+                )
+
+                # [B] Frontmatter 내의 slug/aliases 정제
+                def replace_fm(match):
+                    key = match.group(1)
+                    val = match.group(2)
+                    # val.strip()은 문자열을 반환하므로 안전합니다.
+                    return f"{key}: {sanitize_for_web(val.strip())}"
+
+                content = re.sub(
+                    r"^(slug|aliases):\s*(.*)", replace_fm, content, flags=re.MULTILINE
+                )
+
+                with open(path, "w", encoding="utf-8") as f:
+                    f.write(content)
+
+    # 2. 물리적 파일명 변경 (MD 파일만)
+    for root, dirs, files in os.walk(target_path, topdown=False):
+        for name in files:
+            if name.endswith(".md"):
+                # os.path.splitext는 (이름, 확장자) 튜플을 반환하므로 분리해서 처리해야 합니다.
+                base_name, ext = os.path.splitext(name)
+                new_base = sanitize_for_web(base_name)
+                new_name = new_base + ext
+
+                if name != new_name:
+                    try:
+                        os.rename(
+                            os.path.join(root, name), os.path.join(root, new_name)
                         )
-
-    # 2. 파일 내용 수정 (링크 치환 및 메타데이터 정제)
-    for path in md_files:
-        with open(path, "r", encoding="utf-8") as f:
-            content = f.read()
-
-        # [A] 위키링크 치환: [[파일명|별칭]] -> [[슬러그|별칭]]
-        def replace_link(match):
-            target = match.group(1)
-            alias_part = match.group(2) if match.group(2) else ""
-            sanitized_target = sanitize_url(target)
-
-            # 맵에 있는 목적지(Slug)라면 그 주소로 직접 치환
-            if sanitized_target in route_map:
-                return f"[[{route_map[sanitized_target]}{alias_part}]]"
-            return f"[[{sanitized_target}{alias_part}]]"
-
-        # 이미지는 제외하고 일반 링크만 치환
-        content = re.sub(r"(?<!\!)\[\[([^|\]]+)(\|[^\]]+)?\]\]", replace_link, content)
-
-        # [B] Frontmatter 내 slug 자체도 정제 (404 방지)
-        content = re.sub(
-            r"^slug:\s*(.*)",
-            lambda m: f"slug: {sanitize_url(m.group(1).strip())}",
-            content,
-            flags=re.MULTILINE,
-        )
-
-        with open(path, "w", encoding="utf-8") as f:
-            f.write(content)
-
-    # 3. 물리적 파일명 변경 (마지막에 실행)
-    for path in md_files:
-        dir_name = os.path.dirname(path)
-        base_name = os.path.basename(path)
-        new_name = sanitize_url(base_name)
-        if base_name != new_name:
-            os.rename(path, os.path.join(dir_name, new_name))
-
-    print(f"✨ {len(route_map)}개의 노드에 대한 라우팅 처리가 완료되었습니다.")
+                        print(f"✅ 명칭 변경: {name} -> {new_name}")
+                    except OSError as e:
+                        print(f"❌ 변경 실패: {e}")
 
 
 if __name__ == "__main__":
+    # 소스 저장소의 private 폴더만 타겟팅합니다.
     run_sanitization("temp_notes/private")
