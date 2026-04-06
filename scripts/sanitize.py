@@ -15,8 +15,8 @@ TARGET_DIR = "temp_notes/private"
 
 def sanitize_url(text: str) -> str:
     """
-    Quartz FullSlug 규칙에 맞게 URL을 정제합니다.
-    - 앞뒤 슬래시 제거 (FullSlug는 leading/trailing slash 불허)
+    Quartz URL에 맞게 정제합니다.
+    - 앞뒤 슬래시 제거
     - 괄호 제거
     - 공백 → 하이픈
     """
@@ -29,7 +29,7 @@ def sanitize_url(text: str) -> str:
 def extract_slug(content: str) -> str | None:
     """
     YAML Frontmatter에서 slug 값을 추출합니다.
-    없으면 None 반환.
+    sanitize 적용 후 반환. 없으면 None.
     """
     match = re.search(r'^slug:\s*["\']?([^"\'\n]+)["\']?', content, re.MULTILINE)
     if match:
@@ -49,8 +49,8 @@ def build_mapping(target: str) -> dict[str, str]:
     예시:
       "01_싱글톤(Singleton)" → "cs/design-pattern/creational-pattern/Singleton"
 
-    slug가 선언된 노트만 포함합니다.
-    slug 없는 노트를 향한 위키링크는 원본 그대로 유지됩니다.
+    slug가 없는 노트는 포함하지 않습니다.
+    해당 노트를 향한 위키링크는 원본 그대로 유지됩니다.
     """
     mapping: dict[str, str] = {}
 
@@ -87,24 +87,23 @@ def build_mapping(target: str) -> dict[str, str]:
 # [[폴더/파일명#헤딩|표시텍스트]]
 # 이미지 ![[...]] 는 제외
 WIKILINK_PATTERN = re.compile(
-    r"(?<!\!)"  # 이미지 제외 (앞에 ! 없을 때만)
+    r"(?<!\!)"  # 이미지 제외
     r"\[\["
-    r"([^|\]#\n]+)"  # group(1): 파일 경로 (폴더/파일명 포함)
-    r"(#[^|\]\n]*)?"  # group(2): 헤딩 (#heading, 없을 수도 있음)
-    r"(\|[^\]\n]*)?"  # group(3): 표시 텍스트 (|alias, 없을 수도 있음)
+    r"([^|\]#\n]+)"  # group(1): 파일 경로
+    r"(#[^|\]\n]*)?"  # group(2): 헤딩
+    r"(\|[^\]\n]*)?"  # group(3): 표시 텍스트
     r"\]\]"
 )
 
 
 def replace_wikilinks(content: str, mapping: dict[str, str]) -> str:
     """
-    본문의 위키링크 타겟을 slug(→ permalink) 기반으로 치환합니다.
+    위키링크 타겟을 slug 값으로 치환합니다.
+    slug 없는 노트는 원본 유지.
 
     예시:
       [[01_싱글톤(Singleton)|Singleton]]
       → [[cs/design-pattern/creational-pattern/Singleton|Singleton]]
-
-    slug가 없는 노트는 원본 링크를 그대로 유지합니다.
     """
 
     def replacer(match: re.Match) -> str:
@@ -112,13 +111,11 @@ def replace_wikilinks(content: str, mapping: dict[str, str]) -> str:
         heading = match.group(2) or ""
         alias = match.group(3) or ""
 
-        # Obsidian은 파일명(마지막 세그먼트)으로 링크를 해석
-        # [[폴더/파일명]] 형태일 때도 파일명만 꺼내서 조회
         file_name = raw_path.split("/")[-1]
         slug = mapping.get(file_name) or mapping.get(raw_path)
 
         if slug is None:
-            return match.group(0)  # slug 없으면 원본 유지
+            return match.group(0)
 
         return f"[[{slug}{heading}{alias}]]"
 
@@ -129,35 +126,38 @@ def replace_wikilinks(content: str, mapping: dict[str, str]) -> str:
 # 3단계: frontmatter에 permalink 주입
 # ───────────────────────────────────────────────
 
-# YAML frontmatter 블록 감지
-FRONTMATTER_PATTERN = re.compile(r"^---\n(.*?)\n---", re.DOTALL)
-# 기존 permalink 필드 감지
 PERMALINK_FIELD_PATTERN = re.compile(r"^permalink:\s*.*$", re.MULTILINE)
 
 
 def inject_permalink(content: str) -> str:
     """
-    frontmatter의 slug 값을 읽어 permalink 필드로 주입합니다.
+    slug 값을 읽어 permalink 필드를 주입합니다.
+    permalink 값은 앞에 '/'를 붙여 절대 경로로 강제합니다.
+    → Quartz가 파일의 물리적 경로와 합산하지 않고 절대 URL로 사용.
 
-    - permalink가 이미 있으면 slug 값으로 덮어씁니다.
-    - permalink가 없으면 slug 필드 바로 아래에 추가합니다.
-    - slug 자체가 없는 노트는 아무것도 하지 않습니다.
-
-    결과:
+    예시:
       slug: cs/design-pattern/creational-pattern/Singleton
-      permalink: cs/design-pattern/creational-pattern/Singleton  ← 추가/갱신
+      →  permalink: /cs/design-pattern/creational-pattern/Singleton  (추가)
+
+    - permalink 이미 있으면 → 덮어씀
+    - slug 없는 노트 → 아무것도 안 함
     """
     slug = extract_slug(content)
     if slug is None:
-        return content  # slug 없으면 아무것도 안 함
+        return content
 
-    # 이미 permalink 필드가 있으면 slug 값으로 교체
+    permalink = f"/{slug}"  # 절대 경로 강제
+
+    # 이미 permalink 필드가 있으면 교체
     if PERMALINK_FIELD_PATTERN.search(content):
-        return PERMALINK_FIELD_PATTERN.sub(f"permalink: {slug}", content)
+        return PERMALINK_FIELD_PATTERN.sub(f"permalink: {permalink}", content)
 
-    # permalink 없으면 slug 필드 바로 다음 줄에 삽입
+    # 없으면 slug 바로 다음 줄에 삽입
     return re.sub(
-        r"^(slug:\s*[^\n]+)", rf"\1\npermalink: {slug}", content, flags=re.MULTILINE
+        r"^(slug:\s*[^\n]+)",
+        rf"\1\npermalink: {permalink}",
+        content,
+        flags=re.MULTILINE,
     )
 
 
@@ -168,11 +168,8 @@ def inject_permalink(content: str) -> str:
 
 def rename_files(target: str) -> None:
     """
-    파일명에 포함된 괄호·공백을 제거합니다.
+    파일명의 괄호·공백을 제거합니다.
     topdown=False로 하위 디렉터리부터 처리합니다.
-
-    예시:
-      01_싱글톤(Singleton).md → 01_싱글톤Singleton.md
     """
     for root, _, files in os.walk(target, topdown=False):
         for f in files:
@@ -212,7 +209,7 @@ def main() -> None:
     mapping = build_mapping(TARGET_DIR)
     print()
 
-    # 2. 본문 위키링크 치환 + permalink 주입
+    # 2. 위키링크 치환 + permalink 주입
     changed = 0
     for root, _, files in os.walk(TARGET_DIR):
         for f in files:
