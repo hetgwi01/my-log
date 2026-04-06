@@ -2,11 +2,6 @@ import os
 import re
 
 
-def sanitize(text):
-    # 괄호와 공백을 제거하여 URL 친화적으로 변경 (사용자님 기준)
-    return text.replace("(", "").replace(")", "").replace(" ", "-")
-
-
 def run_sanitization():
     content_dir = "content"
     portfolio_path = os.path.join(content_dir, "portfolio")
@@ -35,7 +30,7 @@ def run_sanitization():
                         line = re.sub(
                             r"\[\[([^|\]]+)(\|[^\]]+)?\]\]",
                             lambda m: (
-                                f"[[{sanitize(m.group(1))}{m.group(2) if m.group(2) else ''}]]"
+                                f"[[{m.group(1)}{m.group(2) if m.group(2) else ''}]]"
                             ),
                             line,
                         )
@@ -43,12 +38,12 @@ def run_sanitization():
                     # [B] Frontmatter 내의 slug 정제 (값만 추출해서 정제)
                     if line.startswith("slug:"):
                         prefix, value = line.split(":", 1)
-                        line = f"{prefix}: {sanitize(value.strip())}\n"
+                        line = f"{prefix}: {value.strip()}\n"
 
                     # [C] Frontmatter 내의 aliases 정제 (값만 추출해서 정제)
                     if line.startswith("aliases:"):
                         prefix, value = line.split(":", 1)
-                        line = f"{prefix}: {sanitize(value.strip())}\n"
+                        line = f"{prefix}: {value.strip()}\n"
 
                     new_lines.append(line)
 
@@ -62,7 +57,7 @@ def run_sanitization():
 
         for name in files:
             if name.endswith(".md"):
-                new_name = sanitize(name)
+                new_name = name
                 if name != new_name:
                     try:
                         os.rename(
