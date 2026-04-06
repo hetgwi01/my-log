@@ -13,40 +13,40 @@ TARGET_DIR = "temp_notes/private"
 # ───────────────────────────────────────────────
 
 
-def sanitize_slug(text: str) -> str:
+def sanitize_url(text: str) -> str:
     """
-    Quartz URL에 쓰일 slug를 정제합니다.
-    괄호·공백을 제거하고 공백은 하이픈으로 대체합니다.
+    Quartz FullSlug 규칙에 맞게 URL을 정제합니다.
+    - 앞뒤 슬래시 제거 (FullSlug는 leading/trailing slash 불허)
+    - 괄호 제거
+    - 공백 → 하이픈
     """
-    text = text.strip().lstrip("/")
+    text = text.strip().strip("/")
     text = text.replace("(", "").replace(")", "")
     text = re.sub(r"\s+", "-", text)
-
-    if not text.startswith("/"):
-        text = "/" + text
     return text
 
 
-def extract_slug(content: str) -> str | None:
+def extract_permalink(content: str) -> str | None:
     """
-    YAML Frontmatter에서 slug 값을 추출합니다.
+    YAML Frontmatter에서 permalink 값을 추출합니다.
     없으면 None 반환.
     """
-    match = re.search(r'^slug:\s*["\']?([^"\'\n]+)["\']?', content, re.MULTILINE)
+    match = re.search(r'^permalink:\s*["\']?([^"\'\n]+)["\']?', content, re.MULTILINE)
     if match:
-        return sanitize_slug(match.group(1))
+        return sanitize_url(match.group(1))
     return None
 
 
 # ───────────────────────────────────────────────
-# 1단계: 파일명 → slug 매핑 테이블 구축
+# 1단계: 파일명 → permalink 매핑 테이블 구축
 # ───────────────────────────────────────────────
 
 
 def build_mapping(target: str) -> dict[str, str]:
     """
-    {파일명(확장자 제외): slug} 딕셔너리를 만듭니다.
-    slug가 선언된 노트만 포함합니다. (없는 건 링크 치환 대상에서 제외)
+    {파일명(확장자 제외): permalink} 딕셔너리를 만듭니다.
+    permalink가 선언된 노트만 포함합니다.
+    (없는 노트의 링크는 치환 대상에서 제외 → 원본 유지)
     """
     mapping: dict[str, str] = {}
 
@@ -61,11 +61,11 @@ def build_mapping(target: str) -> dict[str, str]:
             with open(path, "r", encoding="utf-8") as fp:
                 content = fp.read()
 
-            slug = extract_slug(content)
-            if slug:
-                mapping[base_name] = slug
+            permalink = extract_permalink(content)
+            if permalink:
+                mapping[base_name] = permalink
 
-    print(f"📋 slug 매핑 완료: {len(mapping)}개 노트")
+    print(f"📋 permalink 매핑 완료: {len(mapping)}개 노트")
     return mapping
 
 
@@ -73,9 +73,12 @@ def build_mapping(target: str) -> dict[str, str]:
 # 2단계: 위키링크 치환
 # ───────────────────────────────────────────────
 
-# Obsidian 위키링크 전체 형식을 커버하는 패턴
-# [[파일명]], [[파일명|표시]], [[폴더/파일명]], [[파일명#헤딩]],
-# [[폴더/파일명#헤딩|표시]] 등 모든 조합 지원
+# Obsidian 위키링크 전체 형식 커버
+# [[파일명]]
+# [[파일명|표시텍스트]]
+# [[폴더/파일명]]
+# [[파일명#헤딩]]
+# [[폴더/파일명#헤딩|표시텍스트]]
 # 이미지 ![[...]] 는 제외
 WIKILINK_PATTERN = re.compile(
     r"(?<!\!)"  # 이미지 제외 (앞에 ! 없을 때만)
@@ -89,50 +92,47 @@ WIKILINK_PATTERN = re.compile(
 
 def replace_wikilinks(content: str, mapping: dict[str, str]) -> str:
     """
-    본문의 위키링크를 slug 기반으로 치환합니다.
-    slug가 없는 노트는 원본 링크를 그대로 유지합니다.
+    본문의 위키링크를 permalink 기반으로 치환합니다.
+    permalink가 없는 노트는 원본 링크를 그대로 유지합니다.
     """
 
     def replacer(match: re.Match) -> str:
         raw_path = match.group(1).strip()  # 파일 경로 부분
-        heading = match.group(2) or ""  # #헤딩 (없으면 빈 문자열)
-        alias = match.group(3) or ""  # |표시텍스트 (없으면 빈 문자열)
+        heading = match.group(2) or ""  # #헤딩
+        alias = match.group(3) or ""  # |표시텍스트
 
-        # Obsidian은 폴더 경로가 있어도 파일명만으로 링크를 해석함
-        # 매핑 조회는 파일명(마지막 세그먼트)으로 시도하되,
-        # 전체 경로로도 한 번 더 시도 (폴더/파일명 형태로 저장된 경우 대비)
+        # Obsidian은 파일명(마지막 세그먼트)으로 링크를 해석
+        # 전체 경로로도 한 번 더 시도 (폴더/파일명 형태 대비)
         file_name = raw_path.split("/")[-1]
+        permalink = mapping.get(file_name) or mapping.get(raw_path)
 
-        slug = mapping.get(file_name) or mapping.get(raw_path)
-
-        if slug is None:
-            # slug 없는 노트 → 원본 유지
+        if permalink is None:
+            # permalink 없는 노트 → 원본 유지
             return match.group(0)
 
-        # slug + 헤딩 + alias 재조합
-        return f"[[{slug}{heading}{alias}]]"
+        return f"[[{permalink}{heading}{alias}]]"
 
     return WIKILINK_PATTERN.sub(replacer, content)
 
 
 # ───────────────────────────────────────────────
-# 3단계: frontmatter slug 필드 정제
+# 3단계: frontmatter permalink 필드 정제
 # ───────────────────────────────────────────────
 
-SLUG_FIELD_PATTERN = re.compile(r"^(slug):\s*(.*)", re.MULTILINE)
+PERMALINK_FIELD_PATTERN = re.compile(r"^(permalink):\s*(.*)", re.MULTILINE)
 
 
-def sanitize_frontmatter_slug(content: str) -> str:
+def sanitize_frontmatter_permalink(content: str) -> str:
     """
-    Frontmatter의 slug 값을 정제합니다.
-    (공백·괄호 제거)
+    Frontmatter의 permalink 값을 Quartz FullSlug 규칙에 맞게 정제합니다.
+    (앞뒤 슬래시·괄호 제거, 공백 → 하이픈)
     """
 
     def replacer(match: re.Match) -> str:
         value = match.group(2).strip()
-        return f"slug: {sanitize_slug(value)}"
+        return f"permalink: {sanitize_url(value)}"
 
-    return SLUG_FIELD_PATTERN.sub(replacer, content)
+    return PERMALINK_FIELD_PATTERN.sub(replacer, content)
 
 
 # ───────────────────────────────────────────────
@@ -151,7 +151,7 @@ def rename_files(target: str) -> None:
                 continue
 
             base, ext = os.path.splitext(f)
-            new_base = sanitize_slug(base)
+            new_base = sanitize_url(base)
             new_name = new_base + ext
 
             if f == new_name:
@@ -182,7 +182,7 @@ def main() -> None:
     # 1. 매핑 테이블 구축
     mapping = build_mapping(TARGET_DIR)
 
-    # 2. 본문 위키링크 + frontmatter slug 치환
+    # 2. 본문 위키링크 + frontmatter permalink 정제
     changed = 0
     for root, _, files in os.walk(TARGET_DIR):
         for f in files:
@@ -194,7 +194,7 @@ def main() -> None:
                 original = fp.read()
 
             updated = replace_wikilinks(original, mapping)
-            updated = sanitize_frontmatter_slug(updated)
+            updated = sanitize_frontmatter_permalink(updated)
 
             if original != updated:
                 with open(path, "w", encoding="utf-8") as fp:
