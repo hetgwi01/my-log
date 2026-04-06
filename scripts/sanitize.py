@@ -21,6 +21,9 @@ def sanitize_slug(text: str) -> str:
     text = text.strip().lstrip("/")
     text = text.replace("(", "").replace(")", "")
     text = re.sub(r"\s+", "-", text)
+
+    if not text.startswith("/"):
+        text = "/" + text
     return text
 
 
