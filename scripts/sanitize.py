@@ -5,8 +5,9 @@ import re
 # 설정
 # ───────────────────────────────────────────────
 
-# Mirroring Sync 이전 temp_notes/private 폴더를 대상으로 실행
-TARGET_DIR = "temp_notes/private"
+# 매핑은 private slug 기준, 치환은 public/private 전체 대상
+MAPPING_DIR = "temp_notes/private"
+TARGET_DIR = "temp_notes"
 
 
 # ───────────────────────────────────────────────
@@ -136,8 +137,8 @@ def main() -> None:
 
     print(f"🚀 링크 치환 시작: {TARGET_DIR}\n")
 
-    # 1. 파일명 → slug 매핑 테이블 구축
-    mapping = build_mapping(TARGET_DIR)
+    # 1. 파일명 → slug 매핑 테이블 구축 (private 노트만 대상)
+    mapping = build_mapping(MAPPING_DIR)
     print()
 
     # 2. 위키링크 치환
