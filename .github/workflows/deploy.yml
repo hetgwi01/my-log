@@ -48,6 +48,12 @@ jobs:
       - name: Sanitize filenames and links
         run: python3 scripts/sanitize.py
 
+      - name: Sanitize filenames and links
+        run: |
+          python3 scripts/sanitize.py
+          echo "=== Design Pattern.md 내용 확인 ==="
+          grep "\[\[" temp_notes/private/Design\ Pattern.md || echo "위키링크 없음"
+
       # 4. 사용자 정의 구조 보존 동기화 (이미지 및 포트폴리오)
       - name: Pure Mirroring Sync
         run: |
