@@ -33,7 +33,6 @@ def extract_slug(content: str) -> str | None:
     """
     match = re.search(r'^slug:\s*["\']?([^"\'\n]+)["\']?', content, re.MULTILINE)
     if match:
-        # slug는 Quartz가 그대로 URL로 사용하므로 sanitize만 적용
         return sanitize_url(match.group(1))
     return None
 
@@ -48,7 +47,7 @@ def build_mapping(target: str) -> dict[str, str]:
     {파일명(확장자 제외): slug} 딕셔너리를 만듭니다.
 
     예시:
-      "01_싱글톤(Singleton)" -> "cs/design-pattern/creational-pattern/Singleton"
+      "01_싱글톤(Singleton)" → "cs/design-pattern/creational-pattern/Singleton"
 
     slug가 선언된 노트만 포함합니다.
     slug 없는 노트를 향한 위키링크는 원본 그대로 유지됩니다.
@@ -60,7 +59,7 @@ def build_mapping(target: str) -> dict[str, str]:
             if not f.endswith(".md"):
                 continue
 
-            base_name = os.path.splitext(f)[0]  # 확장자 제거, 순수 문자열
+            base_name = os.path.splitext(f)[0]
             path = os.path.join(root, f)
 
             with open(path, "r", encoding="utf-8") as fp:
@@ -99,7 +98,7 @@ WIKILINK_PATTERN = re.compile(
 
 def replace_wikilinks(content: str, mapping: dict[str, str]) -> str:
     """
-    본문의 위키링크 타겟을 slug 기반으로 치환합니다.
+    본문의 위키링크 타겟을 slug(→ permalink) 기반으로 치환합니다.
 
     예시:
       [[01_싱글톤(Singleton)|Singleton]]
@@ -109,20 +108,17 @@ def replace_wikilinks(content: str, mapping: dict[str, str]) -> str:
     """
 
     def replacer(match: re.Match) -> str:
-        raw_path = match.group(1).strip()  # 파일 경로 부분
-        heading = match.group(2) or ""  # #헤딩
-        alias = match.group(3) or ""  # |표시텍스트
+        raw_path = match.group(1).strip()
+        heading = match.group(2) or ""
+        alias = match.group(3) or ""
 
-        # Obsidian은 파일명(마지막 세그먼트)으로 링크를 해석함
+        # Obsidian은 파일명(마지막 세그먼트)으로 링크를 해석
         # [[폴더/파일명]] 형태일 때도 파일명만 꺼내서 조회
         file_name = raw_path.split("/")[-1]
-
-        # 파일명으로 먼저 조회, 없으면 전체 경로로 재시도
         slug = mapping.get(file_name) or mapping.get(raw_path)
 
         if slug is None:
-            # slug 없는 노트 → 원본 링크 유지
-            return match.group(0)
+            return match.group(0)  # slug 없으면 원본 유지
 
         return f"[[{slug}{heading}{alias}]]"
 
@@ -130,23 +126,39 @@ def replace_wikilinks(content: str, mapping: dict[str, str]) -> str:
 
 
 # ───────────────────────────────────────────────
-# 3단계: frontmatter slug 필드 정제
+# 3단계: frontmatter에 permalink 주입
 # ───────────────────────────────────────────────
 
-SLUG_FIELD_PATTERN = re.compile(r"^slug:\s*(.*)", re.MULTILINE)
+# YAML frontmatter 블록 감지
+FRONTMATTER_PATTERN = re.compile(r"^---\n(.*?)\n---", re.DOTALL)
+# 기존 permalink 필드 감지
+PERMALINK_FIELD_PATTERN = re.compile(r"^permalink:\s*.*$", re.MULTILINE)
 
 
-def sanitize_frontmatter_slug(content: str) -> str:
+def inject_permalink(content: str) -> str:
     """
-    Frontmatter의 slug 값을 Quartz FullSlug 규칙에 맞게 정제합니다.
-    (앞뒤 슬래시·괄호 제거, 공백 → 하이픈)
+    frontmatter의 slug 값을 읽어 permalink 필드로 주입합니다.
+
+    - permalink가 이미 있으면 slug 값으로 덮어씁니다.
+    - permalink가 없으면 slug 필드 바로 아래에 추가합니다.
+    - slug 자체가 없는 노트는 아무것도 하지 않습니다.
+
+    결과:
+      slug: cs/design-pattern/creational-pattern/Singleton
+      permalink: cs/design-pattern/creational-pattern/Singleton  ← 추가/갱신
     """
+    slug = extract_slug(content)
+    if slug is None:
+        return content  # slug 없으면 아무것도 안 함
 
-    def replacer(match: re.Match) -> str:
-        value = match.group(1).strip()
-        return f"slug: {sanitize_url(value)}"
+    # 이미 permalink 필드가 있으면 slug 값으로 교체
+    if PERMALINK_FIELD_PATTERN.search(content):
+        return PERMALINK_FIELD_PATTERN.sub(f"permalink: {slug}", content)
 
-    return SLUG_FIELD_PATTERN.sub(replacer, content)
+    # permalink 없으면 slug 필드 바로 다음 줄에 삽입
+    return re.sub(
+        r"^(slug:\s*[^\n]+)", rf"\1\npermalink: {slug}", content, flags=re.MULTILINE
+    )
 
 
 # ───────────────────────────────────────────────
@@ -200,7 +212,7 @@ def main() -> None:
     mapping = build_mapping(TARGET_DIR)
     print()
 
-    # 2. 본문 위키링크 치환 + frontmatter slug 정제
+    # 2. 본문 위키링크 치환 + permalink 주입
     changed = 0
     for root, _, files in os.walk(TARGET_DIR):
         for f in files:
@@ -212,14 +224,14 @@ def main() -> None:
                 original = fp.read()
 
             updated = replace_wikilinks(original, mapping)
-            updated = sanitize_frontmatter_slug(updated)
+            updated = inject_permalink(updated)
 
             if original != updated:
                 with open(path, "w", encoding="utf-8") as fp:
                     fp.write(updated)
                 changed += 1
 
-    print(f"🔗 링크 치환 완료: {changed}개 파일 수정\n")
+    print(f"🔗 링크 치환 + permalink 주입 완료: {changed}개 파일 수정\n")
 
     # 3. 파일명 물리적 rename
     rename_files(TARGET_DIR)
