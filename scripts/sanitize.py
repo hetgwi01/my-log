@@ -5,8 +5,8 @@ import re
 # 설정
 # ───────────────────────────────────────────────
 
-# Mirroring Sync 이후 content/ 폴더를 대상으로 실행
-TARGET_DIR = "content"
+# Mirroring Sync 이전 temp_notes/private 폴더를 대상으로 실행
+TARGET_DIR = "temp_notes/private"
 
 
 # ───────────────────────────────────────────────
