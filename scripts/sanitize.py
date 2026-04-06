@@ -1,110 +1,210 @@
 import os
 import re
 
+# ───────────────────────────────────────────────
+# 설정
+# ───────────────────────────────────────────────
 
-def sanitize_url(text):
-    """URL 주소로 쓰일 부분에서 괄호와 공백을 제거합니다."""
-    if isinstance(text, tuple):
-        text = text
-    if not text:
-        return ""
-    # 문자열로 변환 후 괄호 및 공백 제거
-    return str(text).replace("(", "").replace(")", "").replace(" ", "-")
+TARGET_DIR = "temp_notes/private"
 
 
-def get_slug_from_content(content):
-    """YAML Frontmatter에서 slug 값을 추출합니다."""
+# ───────────────────────────────────────────────
+# 유틸리티
+# ───────────────────────────────────────────────
+
+
+def sanitize_slug(text: str) -> str:
+    """
+    Quartz URL에 쓰일 slug를 정제합니다.
+    괄호·공백을 제거하고 공백은 하이픈으로 대체합니다.
+    """
+    text = text.strip().lstrip("/")
+    text = text.replace("(", "").replace(")", "")
+    text = re.sub(r"\s+", "-", text)
+    return text
+
+
+def extract_slug(content: str) -> str | None:
+    """
+    YAML Frontmatter에서 slug 값을 추출합니다.
+    없으면 None 반환.
+    """
     match = re.search(r'^slug:\s*["\']?([^"\'\n]+)["\']?', content, re.MULTILINE)
     if match:
-        return match.group(1).strip().lstrip("/")
+        return sanitize_slug(match.group(1))
     return None
 
 
-def final_run():
-    """파일명과 링크를 슬러그 기반으로 매핑하고 정제하는 메인 함수"""
-    target = "temp_notes/private"
-    if not os.path.exists(target):
-        print(f"⚠️ {target} 경로가 없습니다.")
+# ───────────────────────────────────────────────
+# 1단계: 파일명 → slug 매핑 테이블 구축
+# ───────────────────────────────────────────────
+
+
+def build_mapping(target: str) -> dict[str, str]:
+    """
+    {파일명(확장자 제외): slug} 딕셔너리를 만듭니다.
+    slug가 선언된 노트만 포함합니다. (없는 건 링크 치환 대상에서 제외)
+    """
+    mapping: dict[str, str] = {}
+
+    for root, _, files in os.walk(target):
+        for f in files:
+            if not f.endswith(".md"):
+                continue
+
+            base_name = os.path.splitext(f)[0]  # 확장자 제거, 문자열
+            path = os.path.join(root, f)
+
+            with open(path, "r", encoding="utf-8") as fp:
+                content = fp.read()
+
+            slug = extract_slug(content)
+            if slug:
+                mapping[base_name] = slug
+
+    print(f"📋 slug 매핑 완료: {len(mapping)}개 노트")
+    return mapping
+
+
+# ───────────────────────────────────────────────
+# 2단계: 위키링크 치환
+# ───────────────────────────────────────────────
+
+# Obsidian 위키링크 전체 형식을 커버하는 패턴
+# [[파일명]], [[파일명|표시]], [[폴더/파일명]], [[파일명#헤딩]],
+# [[폴더/파일명#헤딩|표시]] 등 모든 조합 지원
+# 이미지 ![[...]] 는 제외
+WIKILINK_PATTERN = re.compile(
+    r"(?<!\!)"  # 이미지 제외 (앞에 ! 없을 때만)
+    r"\[\["
+    r"([^|\]#\n]+)"  # group(1): 파일 경로 (폴더/파일명 포함)
+    r"(#[^|\]\n]*)?"  # group(2): 헤딩 (#heading, 없을 수도 있음)
+    r"(\|[^\]\n]*)?"  # group(3): 표시 텍스트 (|alias, 없을 수도 있음)
+    r"\]\]"
+)
+
+
+def replace_wikilinks(content: str, mapping: dict[str, str]) -> str:
+    """
+    본문의 위키링크를 slug 기반으로 치환합니다.
+    slug가 없는 노트는 원본 링크를 그대로 유지합니다.
+    """
+
+    def replacer(match: re.Match) -> str:
+        raw_path = match.group(1).strip()  # 파일 경로 부분
+        heading = match.group(2) or ""  # #헤딩 (없으면 빈 문자열)
+        alias = match.group(3) or ""  # |표시텍스트 (없으면 빈 문자열)
+
+        # Obsidian은 폴더 경로가 있어도 파일명만으로 링크를 해석함
+        # 매핑 조회는 파일명(마지막 세그먼트)으로 시도하되,
+        # 전체 경로로도 한 번 더 시도 (폴더/파일명 형태로 저장된 경우 대비)
+        file_name = raw_path.split("/")[-1]
+
+        slug = mapping.get(file_name) or mapping.get(raw_path)
+
+        if slug is None:
+            # slug 없는 노트 → 원본 유지
+            return match.group(0)
+
+        # slug + 헤딩 + alias 재조합
+        return f"[[{slug}{heading}{alias}]]"
+
+    return WIKILINK_PATTERN.sub(replacer, content)
+
+
+# ───────────────────────────────────────────────
+# 3단계: frontmatter slug 필드 정제
+# ───────────────────────────────────────────────
+
+SLUG_FIELD_PATTERN = re.compile(r"^(slug):\s*(.*)", re.MULTILINE)
+
+
+def sanitize_frontmatter_slug(content: str) -> str:
+    """
+    Frontmatter의 slug 값을 정제합니다.
+    (공백·괄호 제거)
+    """
+
+    def replacer(match: re.Match) -> str:
+        value = match.group(2).strip()
+        return f"slug: {sanitize_slug(value)}"
+
+    return SLUG_FIELD_PATTERN.sub(replacer, content)
+
+
+# ───────────────────────────────────────────────
+# 4단계: 파일명 정제 (물리적 rename)
+# ───────────────────────────────────────────────
+
+
+def rename_files(target: str) -> None:
+    """
+    파일명에 포함된 괄호·공백을 제거합니다.
+    topdown=False로 하위 디렉터리부터 처리합니다.
+    """
+    for root, _, files in os.walk(target, topdown=False):
+        for f in files:
+            if not f.endswith(".md"):
+                continue
+
+            base, ext = os.path.splitext(f)
+            new_base = sanitize_slug(base)
+            new_name = new_base + ext
+
+            if f == new_name:
+                continue
+
+            src = os.path.join(root, f)
+            dst = os.path.join(root, new_name)
+
+            try:
+                os.rename(src, dst)
+                print(f"✅ 파일명 변경: {f} → {new_name}")
+            except OSError as e:
+                print(f"❌ 변경 실패 ({f}): {e}")
+
+
+# ───────────────────────────────────────────────
+# 메인
+# ───────────────────────────────────────────────
+
+
+def main() -> None:
+    if not os.path.exists(TARGET_DIR):
+        print(f"⚠️  경로가 없습니다: {TARGET_DIR}")
         return
 
-    print(f"🚀 {target} 전처리를 시작합니다. (Link-to-Slug 매핑 모드)")
+    print(f"🚀 전처리 시작: {TARGET_DIR}\n")
 
-    # 1. 파일명 -> 슬러그 매핑 생성
-    # Quartz가 링크를 해석할 때 사용할 지도를 만듭니다.
-    mapping = {}
-    for root, dirs, files in os.walk(target):
+    # 1. 매핑 테이블 구축
+    mapping = build_mapping(TARGET_DIR)
+
+    # 2. 본문 위키링크 + frontmatter slug 치환
+    changed = 0
+    for root, _, files in os.walk(TARGET_DIR):
         for f in files:
-            if f.endswith(".md"):
-                p = os.path.join(root, f)
-                with open(p, "r", encoding="utf-8") as file:
-                    c = file.read()
+            if not f.endswith(".md"):
+                continue
 
-                # os.path.splitext(f)을 사용하여 튜플이 아닌 파일명(문자열)만 추출
-                base_name = os.path.splitext(f)
-                slug = get_slug_from_content(c)
+            path = os.path.join(root, f)
+            with open(path, "r", encoding="utf-8") as fp:
+                original = fp.read()
 
-                # 슬러그가 있으면 정제된 슬러그를, 없으면 정제된 파일명을 밸류로 사용
-                mapping[base_name] = (
-                    sanitize_url(slug) if slug else sanitize_url(base_name)
-                )
+            updated = replace_wikilinks(original, mapping)
+            updated = sanitize_frontmatter_slug(updated)
 
-    # 2. 본문 내 위키링크 및 메타데이터 치환
-    for root, dirs, files in os.walk(target):
-        for f in files:
-            if f.endswith(".md"):
-                p = os.path.join(root, f)
-                with open(p, "r", encoding="utf-8") as file:
-                    content = file.read()
+            if original != updated:
+                with open(path, "w", encoding="utf-8") as fp:
+                    fp.write(updated)
+                changed += 1
 
-                # [핵심] 위키링크 [[타겟]] -> [[슬러그|원본텍스트]]로 교체
-                # 이미지(![[ ]])는 건드리지 않도록 부정형 전방탐색(?<!\!) 사용
-                def replace_logic(match):
-                    target_name = match.group(1).strip()
-                    display_part = (
-                        match.group(2) if match.group(2) else f"|{target_name}"
-                    )
+    print(f"🔗 링크 치환 완료: {changed}개 파일 수정\n")
 
-                    # 매핑 테이블에 있으면 슬러그로, 없으면 기본 정제된 이름으로 연결
-                    final_link = mapping.get(target_name, sanitize_url(target_name))
-                    return f"[[{final_link}{display_part}]]"
+    # 3. 파일명 물리적 rename
+    rename_files(TARGET_DIR)
 
-                new_content = re.sub(
-                    r"(?<!\!)\[\[([^|\]]+)(\|[^\]]+)?\]\]", replace_logic, content
-                )
-
-                # Frontmatter의 slug와 aliases 필드도 404 방지를 위해 정제
-                def sanitize_field(match):
-                    field_name = match.group(1)
-                    field_value = match.group(2).strip()
-                    return f"{field_name}: {sanitize_url(field_value)}"
-
-                new_content = re.sub(
-                    r"^(slug|aliases):\s*(.*)",
-                    sanitize_field,
-                    new_content,
-                    flags=re.MULTILINE,
-                )
-
-                if content != new_content:
-                    with open(p, "w", encoding="utf-8") as file:
-                        file.write(new_content)
-
-    # 3. 물리적 파일명 변경 (정제된 링크가 찾아올 수 있도록)
-    for root, dirs, files in os.walk(target, topdown=False):
-        for f in files:
-            if f.endswith(".md"):
-                # 튜플 에러 방지를 위해 인덱스 사용
-                old_base, ext = os.path.splitext(f)
-                new_base = sanitize_url(old_base)
-                new_name = new_base + ext
-
-                if f != new_name:
-                    try:
-                        os.rename(os.path.join(root, f), os.path.join(root, new_name))
-                        print(f"✅ 파일명 변경: {f} -> {new_name}")
-                    except OSError as e:
-                        print(f"❌ 변경 실패: {e}")
+    print("\n✨ 전처리 완료")
 
 
 if __name__ == "__main__":
-    final_run()
+    main()
