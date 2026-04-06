@@ -43,6 +43,11 @@ jobs:
           token: ${{ secrets.QUARTZ_READER_TOKEN }}
           path: temp_portfolio
 
+      # [추가] 3.5 단계: Quartz 빌드 전 파일명 및 링크 정제
+      # 모든 파일이 content 폴더에 모인 직후, 빌드 전 실행합니다.
+      - name: Sanitize filenames and links
+        run: python3 scripts/sanitize.py
+
       # 4. 사용자 정의 구조 보존 동기화 (이미지 및 포트폴리오)
       - name: Pure Mirroring Sync
         run: |
@@ -97,11 +102,6 @@ jobs:
           fi
 
           rm -rf temp_notes temp_portfolio
-
-      # [추가] 4.5 단계: Quartz 빌드 전 파일명 및 링크 정제
-      # 모든 파일이 content 폴더에 모인 직후, 빌드 전 실행합니다.
-      - name: Sanitize filenames and links
-        run: python3 scripts/sanitize.py
 
       # 5. Quartz 빌드 환경 설정 및 실행
       - name: Setup Node
