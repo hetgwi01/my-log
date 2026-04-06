@@ -3,7 +3,7 @@ name: Deploy Quartz site to GitHub Pages
 on:
   push:
     branches:
-      - v4  # 사용자님의 메인 브랜치
+      - v4 # 사용자님의 메인 브랜치
   # 이벤트
   repository_dispatch:
     types: [update-notes, update-portfolio]
@@ -63,15 +63,15 @@ jobs:
               raw_slug=$(grep -m 1 "^slug:" "$file" | sed 's/slug://g' | sed 's/\"//g' | sed "s/'//g" | xargs)
               slug=${raw_slug#/} # 앞 슬래시 제거
               slug=${slug%/} # 뒤 슬래시 제거
-              
+
               if [ -n "$slug" ]; then
                 # 2. 계층 구조 생성 (mkdir -p 가 공통 경로를 자동으로 묶어줍니다)
                 dest_dir="content/$(dirname "$slug")"
                 dest_file="content/$slug.md"
-                
+
                 mkdir -p "$dest_dir"
                 cp "$file" "$dest_file"
-                
+
                 # 3. 이미지 리소스도 계층에 맞춰 복사
                 src_res_dir="$(dirname "$file")/resources"
                 if [ -d "$src_res_dir" ]; then
@@ -97,6 +97,11 @@ jobs:
           fi
 
           rm -rf temp_notes temp_portfolio
+
+      # [추가] 4.5 단계: Quartz 빌드 전 파일명 및 링크 정제
+      # 모든 파일이 content 폴더에 모인 직후, 빌드 전 실행합니다.
+      - name: Sanitize filenames and links
+        run: python3 scripts/sanitize.py
 
       # 5. Quartz 빌드 환경 설정 및 실행
       - name: Setup Node
